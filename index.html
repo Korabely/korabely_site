@@ -1,0 +1,1247 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>КОРАБЕЛИ - Мапа</title>
+  <link rel="icon" type="image/png" href="https://i.postimg.cc/3JsmKdws/favicon.png">
+  <script src="https://cdn.maptiler.com/maptiler-sdk-js/v3.6.1/maptiler-sdk.umd.min.js"></script>
+  <link href="https://cdn.maptiler.com/maptiler-sdk-js/v3.6.1/maptiler-sdk.css" rel="stylesheet" />
+  <style>
+    :root{
+      --marker-red:#ff3d00;
+      --strike-bearing-length:38px;
+      --outline-scale: 1.10;
+      --outline-shadow: drop-shadow(0 0 1.2px #000) drop-shadow(0 0 2.4px #000);
+    }
+    html, body { margin:0; padding:0; height:100%; font-family:Arial, sans-serif; }
+    #map { position:absolute; inset:0; }
+    .no-capture{ visibility:hidden !important; }
+
+    body.placing .maplibregl-marker,
+    body.placing .mapboxgl-marker,
+    body.placing .marker-rot,
+    body.placing .marker-visual { pointer-events:none !important; }
+
+    #controlContainer { position:absolute; top:10px; left:10px; z-index:1000; user-select:none; display:none; align-items:flex-start; gap:12px; } /* скрыто до авторизации/роли */
+    #leftButtons { display:flex; flex-direction:column; align-items:center; gap:12px; }
+    #mainButton { font-size:22px; }
+    #mainButton.active-button{ background:#fff; color:#222; border-color:#999; }
+
+    #settingsBtn{
+      height:36px; width:40px; background:none; border:none; cursor:pointer;
+      display:flex; justify-content:center; align-items:center; border-radius:6px;
+      transition: background-color .25s, border-color .25s;
+    }
+    #settingsBtn svg{
+      width:17px; height:17px; stroke:#fff; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; pointer-events:none;
+    }
+    #settingsBtn:hover svg{ stroke:#ccc; }
+    #settingsBtn.active{ background:#fff; border:1px solid #999; }
+    #settingsBtn.active svg{ stroke:#222; }
+
+    #clearAllBtn{
+      height:36px; width:40px; background:none; border:none; cursor:pointer;
+      color:#fff; font-size:24px; display:flex; justify-content:center; align-items:center;
+    }
+
+    #buttonsWrapper{ display:flex; align-items:center; gap:10px; }
+    #addTargetBtn{ white-space:nowrap; font-size:16px; display:none; padding:8px 14px; }
+    #addTargetBtn.active-button{ background:#fff; color:#222; border-color:#999; }
+
+    #iconButtons{ display:none; gap:6px; }
+    #iconButtons button{ padding:0 8px; font-size:14px; }
+    #iconButtons button.active{ background:#fff; color:#222; border-color:#999; }
+
+    button:not(#loginBox button){
+      height:40px; min-width:40px; border-radius:6px; border:1px solid #444; background:#222; color:#fff;
+      box-shadow:0 1px 4px rgba(0,0,0,.8); cursor:pointer; font-size:16px; padding:0 10px; user-select:none;
+      transition: background-color .2s, color .2s; display:inline-flex; align-items:center; justify-content:center;
+    }
+    button:not(#loginBox button):hover{ background:#fff; color:#222; border-color:#999; }
+
+    #screenshotBtn{
+      position:fixed; left:10px; bottom:10px; z-index:1000;
+      height:40px; min-width:40px; border-radius:6px; border:1px solid #444; background:#222; color:#fff;
+      box-shadow:0 1px 4px rgba(0,0,0,.8); cursor:pointer; font-size:18px; padding:0 12px; display:none; /* скрыто до роли admin */
+    }
+    #screenshotBtn:hover{ background:#fff; color:#222; border-color:#999; }
+
+    #settingsMenu{
+      position:absolute; background:#222; border:1px solid #444; border-radius:10px;
+      box-shadow:0 6px 18px rgba(0,0,0,.7);
+      padding:14px 16px; display:none; z-index:12000; min-width:260px; color:#fff; font-size:14px;
+    }
+    #settingsMenu .section-title{ font-weight:600; font-size:13px; letter-spacing:.02ем; color:#ddd; margin:4px 0 8px 2px; }
+    #settingsMenu .option{ display:flex; align-items:center; gap:10px; padding:6px 8px; border-radius:8px; cursor:pointer; color:#eee; }
+    #settingsMenu .option:hover{ background:#2a2a2a; color:#fff; }
+    #settingsMenu input[type="radio"], #settingsMenu input[type="checkbox"]{ cursor:pointer; margin:0; accent-color:var(--marker-red); width:16px; height:16px; flex: 0 0 auto; }
+    .divider{ height:1px; background:#333; margin:12px 0; border-radius:1px; }
+
+    /* В режиме lock скрываем только UI, но не карту */
+    body.locked #controlContainer{ display:none !important; }
+    body.locked #modalOverlay{ display:none !important; }
+
+    /* При заблокированном состоянии полностью скрываем карту */
+    body.locked #map{
+      visibility: hidden !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+
+    /* Оверлей логина по умолчанию скрыт — покажем только если не авторизованы */
+    #loginOverlay{ position:fixed; inset:0; background:rgba(0,0,0,.9); display:none; justify-content:center; align-items:center; z-index:20000; }
+    #loginBox{ background:#222; padding:40px 40px 35px; border-radius:14px; color:#fff; width:320px; box-shadow:0 6px 18px rgba(0,0,0,.85); text-align:center; font-size:16px; letter-spacing:.02ем; display:flex; flex-direction:column; align-items:center; gap:16px; }
+    #loginBox h2{ margin:0 0 24px; font-weight:400; font-size:24px; letter-spacing:.03ем; }
+    #loginBox input{ width:240px; padding:14px 16px; border-radius:10px; border:none; font-size:16px; background:#333; color:#fff; box-shadow:inset 0 0 6px rgba(0,0,0,.6); outline:none; }
+    #loginBox input::placeholder{ color:#999; }
+    #loginError{ color:#ff5555; font-weight:600; display:none; margin:0; }
+    #loginBox button{ background:#fff; color:#222; font-size:14px; font-weight:600; padding:12px 0; width:120px; border-radius:12px; border:none; cursor:pointer; box-shadow:0 4px 10px rgba(0,0,0,.4); transition:background-color .3s, box-shadow .3s; margin-top:4px; }
+    #loginBox button:hover{ background:#eee; box-shadow:0 6px 14px rgba(0,0,0,.6); }
+
+    #modalOverlay{ display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:12000; justify-content:center; align-items:center; }
+    #modal{ background:#222; color:#fff; padding:20px 30px; border-radius:10px; box-shadow:0 4px 12px rgba(0,0,0,.7); max-width:320px; text-align:center; }
+    #modal p{ margin-bottom:20px; font-size:18px; }
+    #modal button{ margin:0 10px; min-width:80px; font-weight:bold; }
+    #modal button.confirm{ background:#111; border:1px solid #333; color:#fff; }
+    #modal button.cancel{ background:#fff; border:1px solid #ccc; color:#111; }
+
+    #previewIcon{
+      position:absolute; width:45px; height:45px; pointer-events:none; user-select:none;
+      background-size:contain; background-repeat:no-repeat; background-position:center;
+      transform-origin:center center;
+      transform:translate(-50%,-100%) rotate(0deg) scale(1);
+      z-index:9999; display:none;
+      filter: var(--outline-shadow);
+    }
+
+    .watermark{
+      position:fixed; user-select:none; pointer-events:none; font-weight:bold;
+      color:rgba(255,255,255,.18); text-shadow:0 0 2px rgba(0,0,0,.6);
+      opacity:.18; text-align:center; white-space:nowrap; z-index:100;
+      transform:translate(-50%,-50%);
+    }
+    .watermark .line1{ font-size:28px; line-height:1; }
+    .watermark .line2{ font-size:16px; line-height:1; margin-top:2px; }
+
+    .disclaimer{
+      position:fixed; left:50%; bottom:8px; transform:translateX(-50%);
+      max-width:82vw; padding:0; margin:0;
+      text-align:center; font-size:12px; line-height:1.35; font-weight:600;
+      color:rgba(255,255,255,.18); text-shadow:0 0 2px rgba(0,0,0,.6);
+      pointer-events:none; user-select:none; z-index:120;
+      display:none;
+    }
+
+    .marker-rot{ position:relative; width:45px; height:45px; transform-origin:center center; will-change: transform; }
+    .marker-outline,.marker-visual{
+      position:absolute; inset:0;
+      background-size:contain; background-repeat:no-repeat; background-position:center;
+      -webkit-mask-repeat:no-repeat; -webkit-mask-size:contain; -webkit-mask-position:center;
+      mask-repeat:no-repeat; mask-size:contain; mask-position:center;
+      transform-origin:center center;
+    }
+    .marker-outline{ z-index:0; pointer-events:none; transform: scale(var(--outline-scale)); background-color:#000; }
+    .marker-visual{ z-index:1; filter: var(--outline-shadow); }
+
+    .bearing{ position:absolute; left:50%; top:50%; pointer-events:none; border-radius:2px; z-index:2; }
+    .bearing.strike{
+      width:var(--strike-bearing-length); height:1.4px;
+      transform-origin:left center;
+      transform: translate(0,-50%) translateY(-30px) rotate(90deg) scaleX(-1);
+      box-shadow:0 0 2px rgba(0,0,0,.45);
+      background:#fff;
+    }
+    .bearing.rocket{
+      width:200vw; height:1px;
+      transform-origin:left center;
+      transform: translate(0,-50%) translateY(-30px) rotate(90deg) scaleX(-1);
+      background:rgba(140,140,140,.55); box-shadow:none;
+    }
+
+    .rocket-circle{
+      position:absolute; left:50%; top:50%;
+      width:64px; height:64px; border-radius:50%;
+      background:rgba(255,0,0,0.38);
+      transform:translate(-50%,-50%);
+      pointer-events:none; z-index:0;
+    }
+
+    /* === Топ-право: кнопка профілю + меню === */
+    #topRightBar{
+      position:absolute; top:10px; right:10px; z-index:1100; display:none; /* показуємо після логіну */
+    }
+    #profileBtn{
+      height:36px; min-width:40px; border-radius:18px; padding:0 12px; display:flex; align-items:center; gap:8px;
+      border:1px solid #444; background:#222; color:#fff; cursor:pointer; font-weight:600; font-size:14px;
+      box-shadow:0 1px 4px rgba(0,0,0,.8);
+    }
+    #profileBtn .avatar{
+      width:20px; height:20px; border-radius:50%; background:#555; display:inline-flex; align-items:center; justify-content:center; font-size:12px;
+    }
+    #profileMenu{
+      position:absolute; top:44px; right:0; min-width:260px; background:#222; color:#fff; border:1px solid #444; border-radius:10px;
+      box-shadow:0 6px 18px rgba(0,0,0,.7); display:none; padding:10px 12px;
+    }
+    #profileMenu .hello{ font-size:14px; color:#ddd; margin:6px 4px 10px; }
+    #profileMenu .q{ font-size:13px; color:#bbb; margin:0 4px 10px; }
+    #profileMenu .line{ height:1px; background:#333; margin:8px 0; }
+    #logoutBtn{
+      width:100%; height:36px; border-radius:8px; font-weight:700; font-size:14px;
+      background:#fff; color:#222; border:1px solid #ccc;
+    }
+    /* стиль кнопки адмінки */
+    #adminBtn{
+      width:100%; height:36px; border-radius:8px; font-weight:700; font-size:14px;
+      background:#222; color:#fff; border:1px solid #444; margin-bottom:6px; display:none;
+      cursor:pointer;
+    }
+    #adminBtn:hover{ background:#333; }
+  </style>
+</head>
+<body>
+
+<!-- Вхід -->
+<div id="loginOverlay" aria-modal="true" role="dialog">
+  <div id="loginBox">
+    <h2>Вхід</h2>
+    <div id="loginError">Невірний логін або пароль</div>
+    <input id="username" type="text" placeholder="Логін" autocomplete="username" />
+    <input id="password" type="password" placeholder="Пароль" autocomplete="current-password" />
+    <button id="loginBtn">Увійти</button>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<!-- Ліві кнопки -->
+<div id="controlContainer">
+  <div id="leftButtons">
+    <button id="mainButton" title="Додати ціль">+</button>
+
+    <button id="settingsBtn" title="Налаштування" aria-label="Налаштування">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.01.01a2 2 0 1 1-2.84 2.84l-.01-.01a1.65 1.65 0 0 0-1.82.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.01a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82-.33l-.01.01a2 2 0 1 1-2.84-2.84l.01-.01a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.01a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.01-.01a2 2 0 1 1 2.84-2.84l.01.01a1.65 1.65 0 0 0 1.82-.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.01a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82.33l.01-.01a2 2 0 1 1 2.84 2.84l-.01.01a1.65 1.65 0 0 0-.33 1.82V9c0 .66.26 1.3.73 1.77.47.47 1.11.73 1.77.73H21a2 2 0 1 1 0 4h-.01a1.65 1.65 0 0 0-1.51 1Z"></path>
+      </svg>
+    </button>
+
+    <button id="clearAllBtn" title="Видалити всі маркери">🗑</button>
+  </div>
+
+  <div id="buttonsWrapper">
+    <button id="addTargetBtn" style="display:none;">Додати ціль</button>
+    <div id="iconButtons">
+      <button data-icon="drone">БПЛА</button>
+      <button data-icon="strike">Ударний БПЛА</button>
+      <button data-icon="rocket">Ракета</button>
+      <button data-icon="kab">КАБ</button>
+      <button data-icon="plane">Літак</button>
+    </div>
+  </div>
+</div>
+
+<!-- Правий верх: профіль -->
+<div id="topRightBar" aria-hidden="true">
+  <button id="profileBtn" aria-haspopup="menu" aria-expanded="false" title="Профіль">
+    <span class="avatar" id="profileAvatar">👤</span>
+    <span id="profileShortName">Профіль</span>
+  </button>
+  <div id="profileMenu" role="menu" aria-label="Меню профілю">
+    <div class="hello">Привіт, <span id="profileFullname"></span>!</div>
+    <div class="q">Готовий до моніторингу?</div>
+    <div class="line"></div>
+    <!-- КНОПКА АДМІНКИ: видно тільки admin -->
+    <button id="adminBtn" style="display:none;">Адмін-Панель</button>
+    <button id="logoutBtn">Вийти</button>
+  </div>
+</div>
+
+<button id="screenshotBtn" title="Скрін: приховує тільки UI">📸</button>
+
+<div id="settingsMenu">
+  <div class="section-title">Колір маркерів</div>
+  <label class="option"><input type="radio" name="markerColor" value="white" checked> Білий</label>
+  <label class="option"><input type="radio" name="markerColor" value="red"> Червоний</label>
+
+  <div class="divider"></div>
+
+  <div class="section-title">Вид «Ударний БПЛА»</div>
+  <label class="option"><input type="radio" name="strikeVariant" value="standard" checked> Стандарт</label>
+  <label class="option"><input type="radio" name="strikeVariant" value="balalaika"> Балалайка</label>
+
+  <div class="divider"></div>
+
+  <div class="section-title">Напрямок руху</div>
+  <label class="option"><input type="checkbox" name="bearingStrike"> Ударний БПЛА</label>
+  <label class="option"><input type="checkbox" name="bearingRocket"> Ракета</label>
+
+  <div class="divider"></div>
+
+  <div class="section-title">Попередження</div>
+  <label class="option"><input type="checkbox" name="disclaimerToggle"> Показувати попередження</label>
+</div>
+
+<div id="modalOverlay" role="dialog" aria-modal="true" aria-hidden="true">
+  <div id="modal">
+    <p>Видалити маркер?</p>
+    <button class="confirm">Так</button>
+    <button class="cancel">Ні</button>
+  </div>
+</div>
+
+<div id="disclaimer" class="disclaimer">
+  Ця мапа є приблизним відтворенням розташування ворожих сил на основі письмових даних,<br>
+  які доступні у відкритих джерелах (наприклад, різні телеграм-канали тощо)
+</div>
+
+<div id="previewIcon"></div>
+
+<script>
+  maptilersdk.config.apiKey = '0JS2tnRtcno7mfYAiQHF';
+  const STYLE_ID = '14b55bf0-5cf0-4853-9f7e-69835410e5cf';
+  const BASE_SIZE = 45;
+
+  const OUTLINE_SCALE_DOM = parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue('--outline-scale')
+  ) || 1.10;
+
+  function anchorYOffset(base, scale, outlineScale){
+    return -(base*scale)/2 + ((1 - scale) * (base/2) * outlineScale);
+  }
+
+  function markerTransform(scale, deg, outlineScale = OUTLINE_SCALE_DOM){
+    const offset = (1 - scale) * (BASE_SIZE / 2) * outlineScale;
+    return `translateY(${offset}px) rotate(${deg}deg) scale(${scale})`;
+  }
+
+  const map = new maptilersdk.Map({
+    container:'map',
+    style:`https://api.maptiler.com/maps/${STYLE_ID}/style.json?key=${maptilersdk.config.apiKey}`,
+    center:[31.66132, 48.43453],
+    zoom:5.8,
+    navigationControl:false,
+    geolocateControl:false
+  });
+
+  /* ======== Профіль/сесія ======== */
+  const topRightBar = document.getElementById('topRightBar');
+  const profileBtn = document.getElementById('profileBtn');
+  const profileMenu = document.getElementById('profileMenu');
+  const profileFullnameEl = document.getElementById('profileFullname');
+  const profileShortNameEl = document.getElementById('profileShortName');
+  const profileAvatarEl = document.getElementById('profileAvatar');
+  const logoutBtn = document.getElementById('logoutBtn');
+  const adminBtn = document.getElementById('adminBtn');
+
+  const controlContainer = document.getElementById('controlContainer');
+  const screenshotBtn    = document.getElementById('screenshotBtn');
+
+  let currentUser = null;
+  let CAN_EDIT = false; // ← только admin
+
+  function extractFullname(obj){
+    if (!obj || typeof obj !== 'object') return null;
+    return (
+      obj.user?.full_name ?? obj.full_name ??
+      obj.user?.fullname  ?? obj.fullname ??
+      obj.name ?? obj.user?.name ?? null
+    );
+  }
+
+  function nameToInitials(text){
+    const s=(text||'').trim();
+    if(!s) return '👤';
+    const m = s.match(/[A-Za-zА-Яа-яІіЇїЄєҐґ0-9]+/g) || [];
+    const first = (m[0]||'').slice(0,1).toUpperCase();
+    const second = (m[1]||'').slice(0,1).toUpperCase();
+    return (first + second).trim() || '👤';
+  }
+
+  function setEditorMode(enabled){
+    CAN_EDIT = !!enabled;
+    controlContainer.style.display = CAN_EDIT ? 'flex' : 'none';
+    screenshotBtn.style.display    = CAN_EDIT ? 'inline-flex' : 'none';
+
+    if (!CAN_EDIT){
+      document.body.classList.remove('placing');
+      mainButton.classList.remove('active-button');
+      addTargetBtn.style.display = 'none';
+      addTargetBtn.classList.remove('active-button');
+      iconButtons.style.display = 'none';
+      selectedIconKey = null;
+      iconButtonsList.forEach(b=>b.classList.remove('active'));
+      previewIcon.style.display = 'none';
+      closeSettings();
+    }
+  }
+
+  function showProfileUI(fullnameRaw, role){
+    const fullname = fullnameRaw || 'Користувач';
+    const r = role || 'user';
+    currentUser = { fullname, role: r };
+    profileFullnameEl.textContent = fullname;
+    profileShortNameEl.textContent = fullname;
+    profileAvatarEl.textContent = nameToInitials(fullname);
+
+    adminBtn.style.display = (r === 'admin') ? 'block' : 'none';
+    setEditorMode(r === 'admin');
+
+    topRightBar.style.display = 'block';
+    topRightBar.setAttribute('aria-hidden','false');
+  }
+
+  function hideProfileUI(){
+    topRightBar.style.display = 'none';
+    topRightBar.setAttribute('aria-hidden','true');
+    profileMenu.style.display = 'none';
+    profileBtn.setAttribute('aria-expanded','false');
+  }
+  function lockUI(){
+    document.body.classList.add('locked');
+    document.getElementById('loginOverlay').style.display='flex';
+    const mapEl = document.getElementById('map');
+    if (mapEl) mapEl.setAttribute('aria-hidden','true');
+    hideProfileUI();
+    setEditorMode(false);
+  }
+
+  function unlockUI(){
+    document.getElementById('loginError').style.display='none';
+    document.getElementById('loginOverlay').style.display='none';
+    document.body.classList.remove('locked');
+    const mapEl = document.getElementById('map');
+    if (mapEl) mapEl.removeAttribute('aria-hidden');
+    try { if (map && map.resize) map.resize(); } catch(e) {}
+  }
+
+  // ✅ авторизован только если auth === true
+  async function fetchMe(){
+    try{
+      const r = await fetch('/api/me.php', { credentials:'include' });
+      const j = await r.json();
+      const authed = j?.auth === true;
+
+      if (authed && j?.user){
+        unlockUI();
+        const name = extractFullname(j) ?? extractFullname(j.data) ?? j.user?.full_name ?? 'Користувач';
+        const role = j.user?.role ?? j.data?.role ?? 'user';
+        showProfileUI(name, role);
+      }else{
+        lockUI();
+      }
+    }catch(e){
+      lockUI();
+    }
+  }
+
+  // меню профиля
+  profileBtn.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const opened = profileMenu.style.display==='block';
+    profileMenu.style.display = opened ? 'none' : 'block';
+    profileBtn.setAttribute('aria-expanded', String(!opened));
+  });
+  document.addEventListener('click', (e)=>{
+    if (profileMenu.style.display==='block' &&
+        !profileMenu.contains(e.target) &&
+        !profileBtn.contains(e.target)){
+      profileMenu.style.display='none';
+      profileBtn.setAttribute('aria-expanded','false');
+    }
+  });
+  document.addEventListener('keydown', (e)=>{
+    if (e.key==='Escape' && profileMenu.style.display==='block'){
+      profileMenu.style.display='none';
+      profileBtn.setAttribute('aria-expanded','false');
+    }
+  });
+
+  // переход в админку
+  adminBtn.addEventListener('click', ()=>{ window.location.href = '/admin/'; });
+
+  // выход
+logoutBtn.addEventListener('click', async ()=>{
+  try{
+    await fetch('/api/logout.php', {
+      method: 'POST',
+      credentials: 'include',
+      cache: 'no-store'
+    });
+  }catch(e){}
+  // Перезагрузим документ, чтобы точно ушла старая сессия/состояние
+  location.replace('/');
+});
+
+
+  /* ======== Кінець блоку профілю ======== */
+
+  /* Кеш іконок */
+  const imgCache = new Map();
+  function loadImage(url){
+    return new Promise((resolve, reject)=>{
+      if(imgCache.has(url)) return resolve(imgCache.get(url));
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = ()=>{ imgCache.set(url, img); resolve(img); };
+      img.onerror = reject;
+      img.src = url;
+    });
+  }
+  const tintedCache = new Map();
+  async function getTintedImage(url, color){
+    const key = url + '|' + color;
+    if (tintedCache.has(key)) return tintedCache.get(key);
+    const src = await loadImage(url);
+    const w = src.naturalWidth || src.width;
+    const h = src.naturalHeight || src.height;
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const cx = c.getContext('2d');
+    cx.drawImage(src, 0, 0, w, h);
+    cx.globalCompositeOperation = 'source-in';
+    cx.fillStyle = color;
+    cx.fillRect(0, 0, w, h);
+    tintedCache.set(key, c);
+    return c;
+  }
+
+  /* Login */
+  const loginOverlay=document.getElementById('loginOverlay');
+  const loginBtn=document.getElementById('loginBtn');
+  const usernameInput=document.getElementById('username');
+  const passwordInput=document.getElementById('password');
+  const loginError=document.getElementById('loginError');
+
+  (async () => { await fetchMe(); })();
+
+  loginBtn.addEventListener('click', async () => {
+    const u = usernameInput.value.trim();
+    const p = passwordInput.value;
+    loginError.style.display = 'none';
+
+    try {
+      const r = await fetch('/api/login.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ username: u, password: p })
+      });
+
+      const j = await r.json();
+      if (j?.auth === true) {
+        await fetchMe();
+      } else {
+        loginError.textContent = 'Невірний логін або пароль';
+        loginError.style.display = 'block';
+      }
+    } catch (e) {
+      loginError.textContent = 'Помилка з\'єднання з сервером';
+      loginError.style.display = 'block';
+    }
+  });
+
+  passwordInput.addEventListener('keyup',(e)=>{ if(e.key==='Enter') loginBtn.click(); });
+
+  /* Icons */
+  const iconImages={
+    drone:'https://i.postimg.cc/XNmNQxbW/scout1.png',
+    strike:'https://i.postimg.cc/Vvs3zqM7/shahed2.png',
+    rocket:'https://i.postimg.cc/RFYmgtm8/rocket.png',
+    kab:'https://i.postimg.cc/pV8Vs09J/KAB.png',
+    plane:'https://i.postimg.cc/6pwyqP8c/plane.png',
+    balalaika:'https://i.postimg.cc/L5x6SkCD/balalaika.png'
+  };
+  function getStrikeIconUrl(){ return (strikeVariant==='balalaika')?iconImages.balalaika:iconImages.strike; }
+  function getIconUrl(key){ return (key==='strike')?getStrikeIconUrl():iconImages[key]; }
+  (async () => { try { await Promise.all(Object.values(iconImages).map(loadImage)); } catch(e){} })();
+
+  /* State */
+  let markers=[];
+  const mainButton=document.getElementById('mainButton');
+  const clearAllBtn=document.getElementById('clearAllBtn');
+  const addTargetBtn=document.getElementById('addTargetBtn');
+  const iconButtons=document.getElementById('iconButtons');
+  const iconButtonsList=iconButtons.querySelectorAll('button');
+  const previewIcon=document.getElementById('previewIcon');
+  const settingsBtn=document.getElementById('settingsBtn');
+  const settingsMenu=document.getElementById('settingsMenu');
+  const disclaimerEl=document.getElementById('disclaimer');
+
+  let selectedIconKey=null, markerToDelete=null, previewRotation=0, isRotating=false, fixedX=0, fixedY=0;
+  let markerColor='white', strikeVariant='standard';
+  let previewScale=1;
+  const RED=getComputedStyle(document.documentElement).getPropertyValue('--marker-red').trim()||'#ff3d00';
+  let showBearingStrike=false, showBearingRocket=false;
+  let showDisclaimer=false;
+
+  function zoomScale(){ return Math.pow(0.9, 10 - map.getZoom()); }
+  function extraScaleFor(key){
+    if(key==='strike' && strikeVariant==='standard') return 0.85;
+    if(key==='kab') return 0.85;
+    return 1;
+  }
+  function updatePreviewAppearance(){
+    if(!selectedIconKey) return;
+    const url = (selectedIconKey==='strike') ? getStrikeIconUrl() : getIconUrl(selectedIconKey);
+    if(selectedIconKey==='strike' && strikeVariant==='balalaika'){
+      previewIcon.style.backgroundImage = `url(${url})`;
+      previewIcon.style.backgroundColor = 'transparent';
+      previewIcon.style.webkitMaskImage = ''; previewIcon.style.maskImage = '';
+    }else{
+      previewIcon.style.backgroundImage='none';
+      previewIcon.style.backgroundColor=(markerColor==='red')?RED:'white';
+      previewIcon.style.webkitMaskImage=`url(${url})`; previewIcon.style.maskImage=`url(${url})`;
+      previewIcon.style.webkitMaskRepeat=previewIcon.style.maskRepeat='no-repeat';
+      previewIcon.style.webkitMaskSize=previewIcon.style.maskSize='contain';
+      previewIcon.style.webkitMaskPosition=previewIcon.style.maskPosition='center';
+    }
+  }
+  function updatePreviewScale(){ if(!selectedIconKey) return; previewScale = zoomScale() * extraScaleFor(selectedIconKey); updatePreviewTransform(); }
+
+  function updatePreviewTransform(){
+    const offset = (1 - previewScale) * (BASE_SIZE / 2);
+    previewIcon.style.transform =
+      `translate(-50%,-100%) translateY(${offset}px) rotate(${previewRotation}deg) scale(${previewScale})`;
+  }
+
+  function lerpAngleDeg(current, target, t){ let d=((target-current+540)%360)-180; return current + d*t; }
+
+  /* Modal */
+  const modalOverlay=document.getElementById('modalOverlay');
+  const modalConfirmBtn=modalOverlay.querySelector('button.confirm');
+  const modalCancelBtn=modalOverlay.querySelector('button.cancel');
+  function showModal(){ if(document.body.classList.contains('locked')) return; modalOverlay.style.display='flex'; modalOverlay.setAttribute('aria-hidden','false'); }
+  function hideModal(){ modalOverlay.style.display='none'; modalOverlay.setAttribute('aria-hidden','true'); markerToDelete=null; }
+  modalConfirmBtn.addEventListener('click',()=>{ if(markerToDelete){ markerToDelete.remove(); markers=markers.filter(m=>m!==markerToDelete); } hideModal(); });
+  modalCancelBtn.addEventListener('click', hideModal);
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape') hideModal(); });
+  map.getCanvas().addEventListener('contextmenu',e=>e.preventDefault());
+
+  function setPlacing(active){ document.body.classList.toggle('placing', active); }
+
+  /* Buttons (guarded by CAN_EDIT) */
+  addTargetBtn.style.display='none';
+  mainButton.addEventListener('click',()=>{ if (!CAN_EDIT) return;
+    const willActivate = !mainButton.classList.contains('active-button');
+    mainButton.classList.toggle('active-button', willActivate);
+    if(!willActivate){
+      addTargetBtn.style.display='none';
+      addTargetBtn.classList.remove('active-button');
+      iconButtons.style.display='none';
+      selectedIconKey=null;
+      iconButtonsList.forEach(b=>b.classList.remove('active'));
+      previewIcon.style.display='none';
+      setPlacing(false);
+    }else{
+      addTargetBtn.style.display='inline-block';
+    }
+  });
+  clearAllBtn.addEventListener('click',()=>{ if (!CAN_EDIT) return; markers.forEach(m=>m.remove()); markers.length=0; });
+  addTargetBtn.addEventListener('click',()=>{ if (!CAN_EDIT) return;
+    const isActive=addTargetBtn.classList.contains('active-button');
+    addTargetBtn.classList.toggle('active-button', !isActive);
+    iconButtons.style.display=isActive?'none':'flex';
+    if(isActive){
+      selectedIconKey=null;
+      iconButtonsList.forEach(b=>b.classList.remove('active'));
+      previewIcon.style.display='none';
+      setPlacing(false);
+    }
+  });
+  iconButtonsList.forEach(btn=>{
+    btn.addEventListener('click',()=>{ if (!CAN_EDIT) return;
+      if(btn.classList.contains('active')){
+        btn.classList.remove('active'); selectedIconKey=null; previewIcon.style.display='none'; setPlacing(false); return;
+      }
+      selectedIconKey = btn.dataset.icon;
+      iconButtonsList.forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      previewRotation = 0;
+      updatePreviewAppearance();
+      updatePreviewScale();
+      previewIcon.style.display = 'block';
+      setPlacing(true);
+    });
+  });
+
+  /* Mouse (guarded by CAN_EDIT) */
+  let mapRect = map.getContainer().getBoundingClientRect();
+  window.addEventListener('resize', () => { mapRect = map.getContainer().getBoundingClientRect(); }, { passive: true });
+  let moveRaf = null;
+
+  map.getCanvas().addEventListener('mousedown', e=>{ if (!CAN_EDIT) return;
+    if(!selectedIconKey || e.button===2) return;
+    mapRect = map.getContainer().getBoundingClientRect();
+    isRotating=true; if(map.dragPan && map.dragPan.disable) map.dragPan.disable();
+    fixedX = e.clientX - mapRect.left;
+    fixedY = e.clientY - mapRect.top;
+    previewIcon.style.left=`${fixedX}px`;
+    previewIcon.style.top =`${fixedY}px`;
+    updatePreviewTransform();
+  }, { passive: true });
+
+  map.getCanvas().addEventListener('mousemove', e=>{ if (!CAN_EDIT) return;
+    if(!selectedIconKey) return;
+    const x=e.clientX - mapRect.left, y=e.clientY - mapRect.top;
+    if (moveRaf) return;
+    moveRaf = requestAnimationFrame(()=>{
+      moveRaf = null;
+      if(!isRotating){ previewIcon.style.left=`${x}px`; previewIcon.style.top=`${y}px`; return; }
+      const dx=x-fixedX, dy=y-fixedY;
+      const target = Math.atan2(dy,dx)*(180/Math.PI)+90;
+      previewRotation = lerpAngleDeg(previewRotation, target, 0.16);
+      updatePreviewTransform();
+    });
+  }, { passive: true });
+
+  map.getCanvas().addEventListener('mouseup',()=>{ if (!CAN_EDIT) return;
+    if(!isRotating || !selectedIconKey) return;
+    isRotating=false; if(map.dragPan && map.dragPan.enable) map.dragPan.enable();
+
+    const lngLat = map.unproject([fixedX, fixedY]);
+
+    const el=document.createElement('div'); el.style.width='45px'; el.style.height='45px'; el.style.cursor='pointer';
+    const rot=document.createElement('div'); rot.className='marker-rot'; rot.dataset.baseTransform=`rotate(${previewRotation}deg)`; rot.dataset.extraScale=String(extraScaleFor(selectedIconKey));
+    const outline=document.createElement('div'); outline.className='marker-outline'; outline.dataset.iconKey=selectedIconKey;
+    const vis=document.createElement('div'); vis.className='marker-visual'; vis.dataset.iconKey=selectedIconKey;
+
+    const isBalalaikaNow = (selectedIconKey==='strike' && strikeVariant==='balalaika');
+    const url = getIconUrl(selectedIconKey);
+
+    outline.style.backgroundImage='none';
+    outline.style.webkitMaskImage=`url(${url})`; outline.style.maskImage=`url(${url})`;
+    outline.style.webkitMaskRepeat=outline.style.maskRepeat='no-repeat';
+    outline.style.webkitMaskSize=outline.style.maskSize='contain';
+    outline.style.webkitMaskPosition=outline.style.maskPosition='center';
+
+    if(isBalalaikaNow){
+      vis.style.backgroundImage = `url(${url})`;
+      vis.style.backgroundColor = 'transparent';
+      vis.style.webkitMaskImage = vis.style.maskImage = '';
+      rot.dataset.extraScale='1';
+      vis.dataset.balalaika = '1';
+    }else{
+      vis.style.backgroundImage='none';
+      vis.style.backgroundColor=(markerColor==='red')?RED:'white';
+      vis.style.webkitMaskImage=`url(${url})`; vis.style.maskImage=`url(${url})`;
+      vis.style.webkitMaskRepeat=vis.style.maskRepeat='no-repeat';
+      vis.style.webkitMaskSize=vis.style.maskSize='contain';
+      vis.style.webkitMaskPosition=vis.style.maskPosition='center';
+      vis.dataset.balalaika = '';
+    }
+
+    if(selectedIconKey==='rocket'){
+      const circle=document.createElement('div'); circle.className='rocket-circle'; rot.appendChild(circle);
+    }
+
+    rot.appendChild(outline); rot.appendChild(vis);
+    maybeAttachBearing(vis, rot);
+
+    const zs = zoomScale();
+    const extra = parseFloat(rot.dataset.extraScale || '1');
+    rot.style.transform = markerTransform(zs * extra, previewRotation, OUTLINE_SCALE_DOM);
+
+    el.appendChild(rot);
+
+    const marker=new maptilersdk.Marker({ element:el, anchor:'bottom' }).setLngLat(lngLat).addTo(map);
+    marker.__lngLat = lngLat;
+    marker.__rotEl = rot;
+    marker.__outline = outline;   /* ← FIX */
+    marker.__vis = vis;
+    marker.__meta = { iconKey: selectedIconKey, isBalalaika: isBalalaikaNow, rotationDeg: previewRotation, extraScale: parseFloat(rot.dataset.extraScale || '1') };
+    markers.push(marker);
+
+    el.addEventListener('click',ev=>{
+      if (!CAN_EDIT) return;
+      ev.stopPropagation();
+      if(document.body.classList.contains('placing')) return;
+      markerToDelete=marker; showModal();
+    });
+  }, { passive: true });
+
+  function updateMarkerScales(){
+    const zs=zoomScale();
+    for (const m of markers){
+      const rot = m.__rotEl; if(!rot || !m.__meta) continue;
+      const extra = Number(m.__meta.extraScale || 1);
+      const deg   = Number(m.__meta.rotationDeg || 0);
+      rot.style.transform = markerTransform(zs * extra, deg, OUTLINE_SCALE_DOM);
+    }
+    if(selectedIconKey){ updatePreviewScale(); }
+  }
+  map.on('zoom', updateMarkerScales);
+  map.on('load', updateMarkerScales);
+
+  /* Settings (guarded by CAN_EDIT) */
+  function closeSettings(){ settingsMenu.style.display='none'; settingsBtn.classList.remove('active'); }
+  settingsBtn.addEventListener('click',(e)=>{
+    if (!CAN_EDIT) return;
+    e.stopPropagation();
+    const opened=settingsMenu.style.display==='block';
+    if(opened){ closeSettings(); }
+    else{
+      const rect=settingsBtn.getBoundingClientRect();
+      settingsMenu.style.top=`${rect.top+window.scrollY}px`;
+      settingsMenu.style.left=`${rect.right+8+window.scrollX}px`;
+      settingsMenu.style.display='block'; settingsBtn.classList.add('active');
+    }
+  });
+  document.addEventListener('click',(e)=>{ if(!settingsMenu.contains(e.target) && !settingsBtn.contains(e.target)){ closeSettings(); } });
+
+  settingsMenu.querySelectorAll('input[name="markerColor"]').forEach(r=>{
+    r.addEventListener('change',()=>{
+      markerColor=r.value;
+      document.querySelectorAll('#map .marker-visual').forEach(icon=>{
+        if (icon.dataset.balalaika === '1') return;
+        const isMasked = !!(icon.style.webkitMaskImage || icon.style.maskImage);
+        if(isMasked){ icon.style.backgroundColor=(markerColor==='red')?RED:'white'; }
+      });
+      updateBearingsColor();
+      if(previewIcon.style.display==='block' && !(selectedIconKey==='strike' && strikeVariant==='balalaika')){
+        previewIcon.style.backgroundColor=(markerColor==='red')?RED:'white';
+      }
+    });
+  });
+
+  settingsMenu.querySelectorAll('input[name="strikeVariant"]').forEach(r=>{
+    r.addEventListener('change',()=>{
+      strikeVariant=r.value;
+
+      if(selectedIconKey==='strike' && previewIcon.style.display==='block'){ updatePreviewAppearance(); updatePreviewScale(); }
+
+      markers.forEach(m=>{
+        if(!m.__meta || m.__meta.iconKey!=='strike') return;
+        const rot = m.__rotEl, outline = m.__outline, vis = m.__vis;
+        const urlStrike = getStrikeIconUrl();
+
+        outline.style.backgroundImage='none';
+        outline.style.webkitMaskImage=`url(${urlStrike})`; outline.style.maskImage=`url(${urlStrike})`;
+
+        if(strikeVariant==='balalaika'){
+          vis.style.backgroundImage=`url(${urlStrike})`;
+          vis.style.backgroundColor='transparent';
+          vis.style.webkitMaskImage=vis.style.maskImage='';
+          m.__meta.isBalalaika = true;
+          m.__meta.extraScale  = 1;
+          vis.dataset.balalaika = '1';
+        }else{
+          vis.style.backgroundImage='none';
+          vis.style.backgroundColor=(markerColor==='red')?RED:'white';
+          vis.style.webkitMaskImage=`url(${urlStrike})`; vis.style.maskImage=`url(${urlStrike})`;
+          m.__meta.isBalalaika = false;
+          m.__meta.extraScale  = 0.85;
+          vis.dataset.balalaika = '';
+        }
+
+        const zs = zoomScale();
+        const extra = parseFloat(m.__meta.extraScale || 1);
+        const deg = Number(m.__meta.rotationDeg || 0);
+        rot.style.transform = markerTransform(zs * extra, deg, OUTLINE_SCALE_DOM);
+      });
+
+      updateBearings();
+    });
+  });
+
+  const bearingStrikeInput = settingsMenu.querySelector('input[name="bearingStrike"]');
+  const bearingRocketInput = settingsMenu.querySelector('input[name="bearingRocket"]');
+  bearingStrikeInput.addEventListener('change', ()=>{ showBearingStrike = bearingStrikeInput.checked; updateBearings(); });
+  bearingRocketInput.addEventListener('change', ()=>{ showBearingRocket = bearingRocketInput.checked; updateBearings(); });
+
+  const disclaimerInput = settingsMenu.querySelector('input[name="disclaimerToggle"]');
+  disclaimerInput.addEventListener('change', ()=>{ showDisclaimer = disclaimerInput.checked; disclaimerEl.style.display = showDisclaimer ? 'block' : 'none'; });
+
+  function bearingColor(){ return (markerColor==='red') ? RED : '#ffffff'; }
+  function maybeAttachBearing(icon, rot){
+    const key = icon.dataset.iconKey;
+    const isBalalaika = (key==='strike') && (icon.dataset.balalaika==='1' ||
+                     !(icon.style.webkitMaskImage || icon.style.maskImage));
+    const needForStrike = (key==='strike') && !isBalalaika && showBearingStrike;
+    const needForRocket = (key==='rocket') && showBearingRocket;
+    const need = needForStrike || needForRocket;
+    rot = rot || icon.parentElement;
+
+    let bar = rot.querySelector('.bearing');
+    if(need){
+      if(!bar){ bar = document.createElement('div'); bar.className = 'bearing ' + (key==='rocket'?'rocket':'strike'); rot.appendChild(bar); }
+      else{ bar.className = 'bearing ' + (key==='rocket'?'rocket':'strike'); }
+      if(key==='strike'){ bar.style.background = bearingColor(); }
+      bar.style.display='block';
+    }else if(bar){ bar.remove(); }
+  }
+  function updateBearings(){ document.querySelectorAll('#map .marker-visual').forEach(icon=>{ maybeAttachBearing(icon); }); }
+  function updateBearingsColor(){ document.querySelectorAll('#map .bearing.strike').forEach(bar=>{ bar.style.background = bearingColor(); }); }
+
+  /* ======= Screenshot ======= */
+  function ensureHtml2Canvas(){
+    if (window.html2canvas) return Promise.resolve();
+    return new Promise((res, rej)=>{
+      const s=document.createElement('script');
+      s.src='https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+      s.onload=()=>res(); s.onerror=rej; document.head.appendChild(s);
+    });
+  }
+
+  function waitMapIdle(timeoutMs = 1200){
+    return new Promise((res) => {
+      let done = false;
+      const t = setTimeout(() => { if(!done){ done = true; res(); } }, timeoutMs);
+      map.once('idle', () => { if(!done){ clearTimeout(t); done = true; res(); } });
+    });
+  }
+
+  let _attribStyleEl = null;
+  function setUICaptureHidden(hide){
+    const container = map.getContainer();
+    const extras = Array.from(container.querySelectorAll(
+      '.maplibregl-ctrl, .mapboxgl-ctrl, ' +
+      '.maplibregl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-right, ' +
+      '[class*="attrib"], [class*="Attrib"], [class*="logo"], [class*="Logo"], ' +
+      '[class*="ctrl-bottom-right"], [class*="Ctrl-bottom-right"], ' +
+      '[aria-label*="Attribution"], [aria-label*="attribution"], [aria-label*="Logo"], [aria-label*="logo"]'
+    ));
+    const uiEls = [
+      document.getElementById('controlContainer'),
+      document.getElementById('screenshotBtn'),
+      document.getElementById('settingsMenu'),
+      document.getElementById('topRightBar'),
+      document.getElementById('profileMenu'),
+      ...extras
+    ];
+    uiEls.forEach(el=>{ if(!el) return; if(hide) el.classList.add('no-capture'); else el.classList.remove('no-capture'); });
+
+    if(hide){
+      if(!_attribStyleEl){
+        _attribStyleEl = document.createElement('style');
+        _attribStyleEl.id = 'suppress-attrib';
+        _attribStyleEl.textContent = `
+          .maplibregl-ctrl, .mapboxgl-ctrl,
+          .maplibregl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-right,
+          .maplibregl-ctrl-bottom-left,  .maplibregl-ctrl-bottom-left,
+          [class*="attrib"], [class*="Attrib"], [class*="logo"], [class*="Logo"],
+          [class*="ctrl-bottom-right"], [class*="Ctrl-bottom-right"],
+          [aria-label*="Attribution"], [aria-label*="attribution"], [aria-label*="Logo"], [aria-label*="logo"]{
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+          }`;
+        document.head.appendChild(_attribStyleEl);
+      }
+    }else{ if(_attribStyleEl){ _attribStyleEl.remove(); _attribStyleEl = null; } }
+  }
+
+  function canvasLooksBlank(ctx, w, h){
+    const pts=[[w*0.5,h*0.5],[w*0.25,h*0.25],[w*0.75,h*0.25],[w*0.25,h*0.75],[w*0.75,h*0.75]];
+    try{ for(const [x,y] of pts){ const d=ctx.getImageData(Math.floor(x),Math.floor(y),1,1).data; if(d[3]>5) return false; } return true; }
+    catch(e){ return false; }
+  }
+
+  async function tryDrawWebGL(ctx, w, h, attempts = 4){
+    const webglCanvas = map.getCanvas();
+    for (let i = 0; i < attempts; i++){
+      await new Promise(r => requestAnimationFrame(r));
+      try{
+        ctx.drawImage(webglCanvas, 0, 0, webglCanvas.width, webglCanvas.height, 0, 0, w, h);
+        if (!canvasLooksBlank(ctx, w, h)) return true;
+        ctx.clearRect(0, 0, w, h);
+      }catch(e){
+        ctx.clearRect(0, 0, w, h);
+      }
+      if (map && map.triggerRepaint) map.triggerRepaint();
+    }
+    return false;
+  }
+
+  async function drawBaseMap(ctx, w, h){
+    await waitMapIdle();
+
+    const okDirect = await tryDrawWebGL(ctx, w, h, 5);
+    if (okDirect) return true;
+
+    try{
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const webglCanvas = map.getCanvas();
+      const blob = await new Promise((res, rej)=>
+        webglCanvas.toBlob(b => b ? res(b) : rej(new Error('toBlob null')), 'image/png')
+      );
+      const url = URL.createObjectURL(blob);
+      const img = await loadImage(url);
+      ctx.drawImage(img, 0, 0, webglCanvas.width, webglCanvas.height, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      if (!canvasLooksBlank(ctx, w, h)) return true;
+      ctx.clearRect(0, 0, w, h);
+    }catch(e){}
+
+    try{
+      const center = map.getCenter(); const zoom = map.getZoom().toFixed(2);
+      const staticUrl = `https://api.maptiler.com/maps/${STYLE_ID}/static/${center.lng},${center.lat},${zoom}/${w}x${h}.png?key=${maptilersdk.config.apiKey}&attribution=false&logo=false`;
+      const img = await loadImage(staticUrl);
+      ctx.drawImage(img, 0, 0, w, h);
+      if (!canvasLooksBlank(ctx, w, h)) return true;
+      ctx.clearRect(0, 0, w, h);
+    }catch(e){}
+
+    try{
+      await ensureHtml2Canvas();
+      const canvas = await html2canvas(map.getContainer(), { backgroundColor: null, useCORS: true, allowTaint: true });
+      ctx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, w, h);
+      if (!canvasLooksBlank(ctx, w, h)) return true;
+      ctx.clearRect(0, 0, w, h);
+    }catch(e){}
+
+    return false;
+  }
+
+  function getOutlineScaleForScreenshot(iconKey){
+    const base = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--outline-scale')) || 1.10;
+    if (iconKey === 'drone' || iconKey === 'strike') return Math.max(1.0, base - 0.04);
+    return base;
+  }
+
+  function drawContainAtCenter(ctx, imgCanvasOrImg, tw, th){
+    ctx.drawImage(imgCanvasOrImg, -tw/2, -th/2, tw, th);
+  }
+
+  async function drawOutlined(ctx, url, x, y, base, scale, theta, mainMode, mainColor, outlineScaleOverride, iconKey){
+    const src = imgCache.get(url) || await loadImage(url);
+    const iw = src.naturalWidth || src.width, ih = src.naturalHeight || src.height;
+    const sFit = Math.min(base/iw, base/ih);
+    const tw = Math.max(1, Math.round(iw * sFit));
+    const th = Math.max(1, Math.round(ih * sFit));
+
+    const OUTLINE_SCALE = outlineScaleOverride || (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--outline-scale')) || 1.10);
+    const r = Math.max(1, Math.round(((OUTLINE_SCALE - 1) * tw) / 2));
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.translate(0, anchorYOffset(base, scale, OUTLINE_SCALE));
+    ctx.rotate(theta);
+    ctx.scale(scale, scale);
+
+    const blackSilhouette = await getTintedImage(url, '#000000');
+    const offsets = [[-r,0],[r,0],[0,-r],[0,r],[-r,-r],[r,-r],[r,r],[-r,r]];
+    for(const [dx,dy] of offsets){
+      ctx.save(); ctx.translate(dx,dy); drawContainAtCenter(ctx, blackSilhouette, tw, th); ctx.restore();
+    }
+
+    if(mainMode==='image'){ drawContainAtCenter(ctx, src, tw, th); }
+    else { const tinted = await getTintedImage(url, mainColor); drawContainAtCenter(ctx, tinted, tw, th); }
+
+    ctx.restore();
+  }
+
+  function drawStrikeBearing(ctx, x,y,thetaRad,scale,baseSize, color, outlineScale){
+    const len = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--strike-bearing-length')) || 38;
+    const height = 1.4;
+    const offY = -0.66*baseSize;
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.translate(0, anchorYOffset(baseSize, scale, outlineScale));
+    ctx.rotate(thetaRad);
+    ctx.scale(scale, scale);
+    ctx.translate(0, offY);
+    ctx.rotate(Math.PI/2);
+    ctx.scale(-1, 1);
+    ctx.fillStyle = color;
+    ctx.fillRect(0, -height/2, len, height);
+    ctx.restore();
+  }
+
+  function drawRocketBearing(ctx, x,y,thetaRad,scale,baseSize, outlineScale){
+    const len = map.getContainer().clientWidth * 2;
+    const height = 1;
+    const offY = -0.66*baseSize;
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.translate(0, anchorYOffset(baseSize, scale, outlineScale));
+    ctx.rotate(thetaRad);
+    ctx.scale(scale, scale);
+    ctx.translate(0, offY);
+    ctx.rotate(Math.PI/2);
+    ctx.scale(-1, 1);
+    ctx.fillStyle = 'rgba(140,140,140,0.55)';
+    ctx.fillRect(0, -height/2, len, height);
+    ctx.restore();
+  }
+
+  function fitFontForLines(ctx, lines, baseSizePx, maxWidth){
+    let size = baseSizePx;
+    ctx.font = `600 ${size}px Arial`;
+    let widest = Math.max(...lines.map(l=>ctx.measureText(l).width));
+    while (widest > maxWidth && size > 9){
+      size -= 1; ctx.font = `600 ${size}px Arial`; widest = Math.max(...lines.map(l=>ctx.measureText(l).width));
+    }
+    return size;
+  }
+
+  function randFloat(min, max) { const arr = new Uint32Array(1); (self.crypto||window.crypto).getRandomValues(arr); const u = arr[0]/4294967296; return min + (max-min)*u; }
+
+  async function copyMapToClipboard(){
+    if (!CAN_EDIT) return;
+    setUICaptureHidden(true);
+    try{
+      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+
+      const container = map.getContainer();
+      const w = container.clientWidth, h = container.clientHeight;
+      const ratio = window.devicePixelRatio || 1;
+
+      const off = document.createElement('canvas');
+      off.width = Math.round(w * ratio);
+      off.height = Math.round(h * ratio);
+      const ctx = off.getContext('2d');
+      ctx.scale(ratio, ratio);
+
+      const ok = await drawBaseMap(ctx, w, h);
+      if(!ok){ throw new Error('Не вдалося зняти карту.'); }
+
+      const zs = zoomScale();
+      const base = BASE_SIZE;
+
+      const urls = new Set();
+      for(const m of markers){
+        if(!m.__meta || !m.__lngLat) continue;
+        const meta = m.__meta;
+        const url = (meta.iconKey==='strike')
+          ? (meta.isBalalaika ? iconImages.balalaika : iconImages.strike)
+          : iconImages[meta.iconKey];
+        urls.add(url);
+      }
+      await Promise.all(Array.from(urls).map(loadImage));
+
+      for(const m of markers){
+        if(!m.__meta || !m.__lngLat) continue;
+        const meta = m.__meta;
+        const pt = map.project(m.__lngLat);
+        const x = pt.x, y = pt.y;
+
+        const scale = zs * (meta.extraScale || 1);
+        const theta = meta.rotationDeg * Math.PI / 180;
+
+        const outlineScale = getOutlineScaleForScreenshot(meta.iconKey);
+
+        if(meta.iconKey==='rocket'){
+          ctx.save();
+          ctx.translate(x,y);
+          ctx.translate(0, anchorYOffset(base, scale, outlineScale));
+          ctx.beginPath();
+          ctx.arc(0, 0, Math.max(1, 32 * (64/64) * scale), 0, Math.PI*2);
+          ctx.fillStyle = 'rgba(255,0,0,0.38)';
+          ctx.fill();
+          ctx.restore();
+
+          if(showBearingRocket){
+            drawRocketBearing(ctx, x, y, theta, scale, base, outlineScale);
+          }
+        }
+
+        if(meta.iconKey==='strike' && showBearingStrike && !meta.isBalalaika){
+          const col = (markerColor==='red') ? '#ff3d00' : '#ffffff';
+          drawStrikeBearing(ctx, x, y, theta, scale, base, col, outlineScale);
+        }
+
+        const url = (meta.iconKey==='strike')
+          ? (meta.isBalalaika ? iconImages.balalaika : iconImages.strike)
+          : iconImages[meta.iconKey];
+        const mode = (meta.iconKey==='strike' && meta.isBalalaika) ? 'image' : 'masked';
+        const mainColor = (markerColor==='red') ? '#ff3d00' : '#ffffff';
+
+        await drawOutlined(ctx, url, x, y, base, scale, theta, mode, mainColor, outlineScale, meta.iconKey);
+      }
+
+      /* водяні знаки */
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const mapRectLocal = container.getBoundingClientRect();
+      const watermarkCountX=4, watermarkCountY=5;
+      const cellW = w / watermarkCountX, cellH = h / watermarkCountY;
+      const jitterX = cellW * 0.10, jitterY = cellH * 0.10;
+
+      for(const wm of document.querySelectorAll('.watermark')){
+        const r = wm.getBoundingClientRect();
+        const tx = r.left + r.width/2 - mapRectLocal.left;
+        const ty = r.top + r.height/2 - mapRectLocal.top;
+
+        const dx = randFloat(-jitterX, jitterX);
+        const dy = randFloat(-jitterY, jitterY);
+        const alpha = randFloat(0.10, 0.14);
+
+        ctx.save();
+        ctx.translate(tx + dx, ty + dy);
+        ctx.font='bold 28px Arial';
+        ctx.fillStyle=`rgba(255,255,255,${alpha})`;
+        ctx.fillText('КОРАБЕЛИ', 0, -8);
+        ctx.font='bold 16px Arial';
+        ctx.fillStyle=`rgba(255,255,255,${alpha})`;
+        ctx.fillText('t.me/korabely_media', 0, 10);
+        ctx.restore();
+      }
+
+      const disclaimerLines = [
+        'Ця мапа є приблизним відтворенням розташування ворожих сил на основі письмових даних,',
+        'які доступні у відкритих джерелах (наприклад, різні телеграм-канали тощо)'
+      ];
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
+      const maxWidth = w * 0.82;
+      const fontSize = fitFontForLines(ctx, disclaimerLines, 12, maxWidth);
+      const lineHeight = Math.round(fontSize * 1.33);
+      ctx.font = `600 ${fontSize}px Arial`;
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      const marginBottom = 10;
+      ctx.fillText(disclaimerLines[0], w/2, h - marginBottom - lineHeight);
+      ctx.fillText(disclaimerLines[1], w/2, h - marginBottom);
+
+      const blob = await new Promise((res,rej)=> off.toBlob(b=>b?res(b):rej(new Error('blob fail')), 'image/png'));
+      try{
+        await navigator.clipboard.write([ new ClipboardItem({ 'image/png': blob }) ]);
+        toast('Скрін додано в буфер обміну ✅');
+      }catch(err){
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        toast('Відкрив скрін у новій вкладці (буфер відхилився) 📷');
+        setTimeout(()=>URL.revokeObjectURL(url), 10000);
+      }
+    }catch(e){
+      console.error(e);
+      alert(e.message || 'Сталася помилка під час створення скріншота.');
+    }finally{
+      setUICaptureHidden(false);
+    }
+  }
+
+  function toast(text){
+    const t = document.createElement('div');
+    t.textContent = text;
+    Object.assign(t.style, {
+      position:'fixed', left:'50%', bottom:'20px', transform:'translateX(-50%)',
+      background:'#222', color:'#fff', padding:'10px 14px', borderRadius:'8px',
+      border:'1px solid #444', boxShadow:'0 2px 10px rgba(0,0,0,.5)', zIndex:20000,
+      fontSize:'14px'
+    });
+    document.body.appendChild(t);
+    setTimeout(()=>{ t.style.transition='opacity .4s'; t.style.opacity='0'; }, 1200);
+    setTimeout(()=> t.remove(), 1700);
+  }
+
+  document.getElementById('screenshotBtn').addEventListener('click', ()=>{ if (!CAN_EDIT) return; copyMapToClipboard().catch(console.error); });
+
+  /* Водяні знаки (DOM) */
+  const watermarkCountX=4, watermarkCountY=5;
+  for (let y=0; y<watermarkCountY; y++){
+    for (let x=0; x<watermarkCountX; x++){
+      const wm=document.createElement('div'); wm.className='watermark';
+      const topPercent=(y+0.5)*(100/watermarkCountY);
+      let leftPercent=(x+0.5)*(100/watermarkCountX);
+      if(y%2===0){ leftPercent+=(50/watermarkCountX); if(leftPercent>100) leftPercent-=100; }
+      wm.style.top=`${topPercent}%`; wm.style.left=`${leftPercent}%`;
+      wm.innerHTML=`<div class="line1">КОРАБЕЛИ</div><div class="line2">t.me/korabely_media</div>`;
+      document.body.appendChild(wm);
+    }
+  }
+</script>
+
+</body>
+</html>
